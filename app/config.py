@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     llm_model: str
     database_url: str = "postgresql+asyncpg://chat:chat@localhost:5432/chat"
     max_context_tokens: int = 6000
-
+    embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     model_config = SettingsConfigDict(env_file=".env")
 
 
