@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class DocumentOut(BaseModel):
@@ -19,3 +19,8 @@ class SearchHit(BaseModel):
     position: int
     content: str
     distance: float
+
+
+class AskRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+    k: int | None = Field(default=None, ge=1, le=20)

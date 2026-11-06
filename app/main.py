@@ -6,7 +6,7 @@ from fastapi import FastAPI
 
 from app.routers import documents
 from app.services.embeddings import get_model
-from app.routers import documents, search
+from app.routers import documents, search, ask
 
 
 logging.basicConfig(
@@ -25,6 +25,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="RagDocsApi", lifespan=lifespan)
 app.include_router(documents.router)
 app.include_router(search.router)
+app.include_router(ask.router)
 
 @app.get("/health")
 async def health():
