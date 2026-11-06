@@ -1,3 +1,6 @@
+import asyncio
+
+from app.services.parsing import ParseError, extract_text
 import logging
 import uuid
 from pathlib import Path
@@ -16,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
-ALLOWED_EXTENSIONS = {".txt", ".md"}
+ALLOWED_EXTENSIONS = {".txt", ".md", ".pdf"}
 EMBED_BATCH = 64  # сколько кусков считаем за один вызов модели
 
 
@@ -35,9 +38,10 @@ async def upload_document(
         raise HTTPException(413, f"Файл больше {settings.max_upload_mb} МБ")
 
     try:
-        text = raw.decode("utf-8-sig")  # utf-8-sig убирает BOM, если он есть
-    except UnicodeDecodeError:
-        raise HTTPException(422, "Файл должен быть в кодировке UTF-8")
+        # разбор PDF нагружает процессор, поэтому уводим его с event loop
+        text = await asyncio.to_thread(extract_text, filename, raw)
+    except ParseError as e:
+        raise HTTPException(422, str(e))
 
     chunks = chunk_text(text, settings.chunk_size, settings.chunk_overlap)
     if not chunks:

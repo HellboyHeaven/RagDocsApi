@@ -44,3 +44,24 @@ async def delete_document(session: AsyncSession, doc_id: uuid.UUID) -> bool:
     await session.delete(doc)
     await session.commit()
     return True
+
+
+async def search_chunks(session: AsyncSession, query_vector: list[float], k: int) -> list[dict]:
+    distance = Chunk.embedding.cosine_distance(query_vector).label("distance")
+    result = await session.execute(
+        select(Chunk, Document.filename, distance)
+        .join(Document, Document.id == Chunk.document_id)
+        .order_by(distance)
+        .limit(k)
+    )
+    return [
+        {
+            "chunk_id": chunk.id,
+            "document_id": chunk.document_id,
+            "filename": filename,
+            "position": chunk.position,
+            "content": chunk.content,
+            "distance": float(dist),
+        }
+        for chunk, filename, dist in result.all()
+    ]

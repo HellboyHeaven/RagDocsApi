@@ -11,3 +11,11 @@ class DocumentOut(BaseModel):
     filename: str
     created_at: datetime
     chunks_count: int
+
+class SearchHit(BaseModel):
+    chunk_id: int
+    document_id: uuid.UUID
+    filename: str
+    position: int
+    content: str
+    distance: float
