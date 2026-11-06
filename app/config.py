@@ -10,7 +10,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env")
     embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     embedding_dim: int = 384
-    
+    chunk_size: int = 500
+    chunk_overlap: int = 80
+    max_upload_mb: int = 5
 
 
 settings = Settings()
