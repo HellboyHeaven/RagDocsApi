@@ -15,5 +15,22 @@ services:
       timeout: 3s
       retries: 10
 
+  app:
+    build:
+      context: .
+      args:
+        # Rebuild the image after changing the model in .env
+        EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
+    env_file: .env
+    environment:
+      # Inside the compose network the database host is the service name, not localhost
+      DATABASE_URL: postgresql+asyncpg://rag:rag@db:5432/rag
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: on-failure
+
 volumes:
   pgdata:

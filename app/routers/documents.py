@@ -1,6 +1,4 @@
 import asyncio
-
-from app.services.parsing import ParseError, extract_text
 import logging
 import uuid
 from pathlib import Path
@@ -14,13 +12,14 @@ from app.db import get_session
 from app.schemas import DocumentOut
 from app.services.chunking import chunk_text
 from app.services.embeddings import embed
+from app.services.parsing import ParseError, extract_text
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 ALLOWED_EXTENSIONS = {".txt", ".md", ".pdf"}
-EMBED_BATCH = 64  # сколько кусков считаем за один вызов модели
+EMBED_BATCH = 64  # how many chunks to embed per model call
 
 
 @router.post("", response_model=DocumentOut, status_code=201)
@@ -30,29 +29,29 @@ async def upload_document(
 ):
     filename = file.filename or "untitled"
     if Path(filename).suffix.lower() not in ALLOWED_EXTENSIONS:
-        raise HTTPException(415, "Поддерживаются только файлы .txt и .md")
+        raise HTTPException(415, "Only .txt, .md and .pdf files are supported")
 
     max_bytes = settings.max_upload_mb * 1024 * 1024
-    raw = await file.read(max_bytes + 1)  # читаем на байт больше лимита
+    raw = await file.read(max_bytes + 1)  # read one byte past the limit to detect overflow
     if len(raw) > max_bytes:
-        raise HTTPException(413, f"Файл больше {settings.max_upload_mb} МБ")
+        raise HTTPException(413, f"File is larger than {settings.max_upload_mb} MB")
 
     try:
-        # разбор PDF нагружает процессор, поэтому уводим его с event loop
+        # Parsing is CPU-bound, so keep it off the event loop
         text = await asyncio.to_thread(extract_text, filename, raw)
     except ParseError as e:
         raise HTTPException(422, str(e))
 
     chunks = chunk_text(text, settings.chunk_size, settings.chunk_overlap)
     if not chunks:
-        raise HTTPException(422, "В файле нет текста")
+        raise HTTPException(422, "The file contains no text")
 
     vectors: list[list[float]] = []
     for i in range(0, len(chunks), EMBED_BATCH):
         vectors.extend(await embed(chunks[i : i + EMBED_BATCH]))
 
     doc = await crud.create_document(session, filename, chunks, vectors)
-    logger.info("Загружен документ %s: %d кусков", filename, len(chunks))
+    logger.info("Uploaded document %s: %d chunks", filename, len(chunks))
     return DocumentOut(
         id=doc.id,
         filename=doc.filename,
@@ -72,4 +71,4 @@ async def delete_document(
     session: AsyncSession = Depends(get_session),
 ):
     if not await crud.delete_document(session, doc_id):
-        raise HTTPException(404, "Документ не найден")
+        raise HTTPException(404, "Document not found")

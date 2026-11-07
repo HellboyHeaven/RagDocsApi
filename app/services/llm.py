@@ -14,7 +14,7 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# max_retries=0: повторами управляем сами через tenacity, иначе они удвоятся
+# max_retries=0: retries are handled by tenacity below, otherwise they would multiply
 client = AsyncOpenAI(
     base_url=settings.llm_base_url,
     api_key=settings.llm_api_key,
@@ -24,19 +24,19 @@ client = AsyncOpenAI(
 
 
 def _is_retryable(e: BaseException) -> bool:
-    if isinstance(e, (RateLimitError, APIConnectionError)):  # 429, сеть, таймаут
+    if isinstance(e, (RateLimitError, APIConnectionError)):  # 429, network, timeout
         return True
     return isinstance(e, APIStatusError) and e.status_code >= 500
 
 
 def friendly_error(e: Exception) -> str:
     if isinstance(e, RateLimitError):
-        return "Превышен лимит запросов, подождите минуту"
+        return "Rate limit exceeded, please wait a minute"
     if isinstance(e, AuthenticationError):
-        return "Неверный API-ключ"
+        return "Invalid API key"
     if isinstance(e, APIConnectionError):
-        return "Не удалось связаться с моделью"
-    return "Ошибка модели"
+        return "Could not reach the model"
+    return "Model error"
 
 
 @retry(
@@ -46,6 +46,8 @@ def friendly_error(e: Exception) -> str:
     reraise=True,
 )
 async def _open_stream(messages: list[dict]):
+    # Only opening the stream is retried: a stream that has started
+    # must never be retried, or the client would receive duplicated text
     return await client.chat.completions.create(
         model=settings.llm_model,
         messages=messages,
@@ -73,8 +75,8 @@ async def stream_chat(messages: list[dict]):
                 "out": chunk.usage.completion_tokens,
             }
 
-    if not got_usage:  # провайдер не прислал usage: грубая оценка
+    if not got_usage:  # the provider sent no usage: rough estimate, ~4 chars per token
         in_chars = sum(len(m["content"]) for m in messages)
         yield {"type": "usage", "in": in_chars // 4, "out": out_chars // 4, "estimated": True}
 
-    logger.info("LLM ответил за %.2f с", time.perf_counter() - started)
+    logger.info("LLM responded in %.2f s", time.perf_counter() - started)

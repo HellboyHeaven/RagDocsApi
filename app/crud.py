@@ -14,13 +14,13 @@ async def create_document(
 ) -> Document:
     doc = Document(filename=filename)
     session.add(doc)
-    await session.flush()  # получаем doc.id до коммита
+    await session.flush()  # get doc.id before committing
 
     session.add_all(
         Chunk(document_id=doc.id, position=i, content=text, embedding=vec)
         for i, (text, vec) in enumerate(zip(chunks, vectors))
     )
-    await session.commit()  # документ и все куски сохраняются одной транзакцией
+    await session.commit()  # the document and all its chunks are saved in one transaction
     return doc
 
 
@@ -47,6 +47,7 @@ async def delete_document(session: AsyncSession, doc_id: uuid.UUID) -> bool:
 
 
 async def search_chunks(session: AsyncSession, query_vector: list[float], k: int) -> list[dict]:
+    # Cosine distance: the smaller, the closer in meaning
     distance = Chunk.embedding.cosine_distance(query_vector).label("distance")
     result = await session.execute(
         select(Chunk, Document.filename, distance)

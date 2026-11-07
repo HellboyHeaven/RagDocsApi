@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RagDocs</title>
+  <style>
+    :root {
+      --bg: #ffffff; --panel: #f6f7f9; --text: #1a1a1a; --muted: #6b7280;
+      --border: #d9dce1; --user: #dbeafe; --bot: #f1f5f9; --accent: #2563eb; --error: #b91c1c;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #14161a; --panel: #1c1f25; --text: #e6e8eb; --muted: #9aa1ac;
+        --border: #2d323b; --user: #1e3a5f; --bot: #232830; --accent: #60a5fa; --error: #f87171;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; height: 100vh; display: flex; font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); }
+    #sidebar { width: 300px; background: var(--panel); border-right: 1px solid var(--border); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+    h1 { font-size: 18px; margin: 0; }
+    h2 { font-size: 13px; margin: 8px 0 0; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    button { cursor: pointer; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+    button:hover { border-color: var(--accent); }
+    button:disabled { opacity: .5; cursor: default; }
+    #dropzone { border: 2px dashed var(--border); border-radius: 8px; padding: 14px; text-align: center; color: var(--muted); font-size: 14px; cursor: pointer; }
+    #dropzone.over { border-color: var(--accent); color: var(--accent); }
+    #uploadStatus { font-size: 13px; min-height: 18px; color: var(--muted); }
+    #uploadStatus.error { color: var(--error); }
+    #docs { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+    .doc { display: flex; align-items: center; gap: 6px; padding: 7px 8px; border-radius: 6px; background: var(--bg); border: 1px solid var(--border); font-size: 14px; }
+    .doc .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .doc .meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .doc button { padding: 2px 7px; border: none; background: none; color: var(--muted); }
+    #empty { color: var(--muted); font-size: 14px; }
+
+    #main { flex: 1; display: flex; flex-direction: column; padding: 14px; min-width: 0; }
+    #messages { flex: 1; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+    .hint { color: var(--muted); text-align: center; margin-top: 30vh; }
+    .msg { margin: 10px 0; max-width: 88%; }
+    .msg.user { margin-left: auto; }
+    .bubble { padding: 9px 13px; border-radius: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .user .bubble { background: var(--user); }
+    .assistant .bubble { background: var(--bot); }
+    .bubble.error { color: var(--error); }
+    details.sources { margin-top: 6px; font-size: 13px; color: var(--muted); }
+    details.sources summary { cursor: pointer; }
+    .source { margin: 6px 0 0 4px; padding: 6px 10px; border-left: 3px solid var(--accent); background: var(--panel); border-radius: 0 6px 6px 0; }
+    .source .title { font-weight: 600; color: var(--text); }
+    .source .snippet { margin-top: 2px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    form { display: flex; gap: 8px; margin-top: 10px; }
+    #question { flex: 1; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+    #stopBtn { display: none; }
+  </style>
+</head>
+<body>
+  <div id="sidebar">
+    <h1>RagDocs</h1>
+    <div id="dropzone">Drop files here<br>or click to browse (.txt, .md, .pdf)</div>
+    <input id="fileInput" type="file" accept=".txt,.md,.pdf" multiple hidden>
+    <div id="uploadStatus"></div>
+    <h2>Documents</h2>
+    <div id="docs"></div>
+  </div>
+
+  <div id="main">
+    <div id="messages"><div class="hint">Upload a document and ask a question about it</div></div>
+    <form id="form">
+      <input id="question" placeholder="Ask a question about the documents..." autocomplete="off">
+      <button id="sendBtn" type="submit">Ask</button>
+      <button id="stopBtn" type="button">Стоп</button>
+    </form>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const messagesEl = $("messages"), docsEl = $("docs"), statusEl = $("uploadStatus");
+    const form = $("form"), questionEl = $("question"), sendBtn = $("sendBtn"), stopBtn = $("stopBtn");
+    const dropzone = $("dropzone"), fileInput = $("fileInput");
+
+    let controller = null;
+
+    // ---------- documents ----------
+    function setStatus(text, isError = false) {
+      statusEl.textContent = text;
+      statusEl.classList.toggle("error", isError);
+    }
+
+    async function loadDocs() {
+      const res = await fetch("/documents");
+      const docs = await res.json();
+      docsEl.innerHTML = "";
+      if (!docs.length) {
+        const empty = document.createElement("div");
+        empty.id = "empty";
+        empty.textContent = "No documents uploaded yet";
+        docsEl.appendChild(empty);
+        return;
+      }
+      for (const d of docs) {
+        const row = document.createElement("div");
+        row.className = "doc";
+
+        const name = document.createElement("span");
+        name.className = "name";
+        name.textContent = d.filename;
+        name.title = d.filename;
+
+        const meta = document.createElement("span");
+        meta.className = "meta";
+        meta.textContent = d.chunks_count + " chunks";
+
+        const del = document.createElement("button");
+        del.textContent = "✕";
+        del.title = "Delete";
+        del.onclick = async () => {
+          await fetch(`/documents/${d.id}`, { method: "DELETE" });
+          loadDocs();
+        };
+
+        row.append(name, meta, del);
+        docsEl.appendChild(row);
+      }
+    }
+
+    async function uploadFiles(files) {
+      for (const file of files) {
+        setStatus(`Processing: ${file.name}…`);
+        const body = new FormData();
+        body.append("file", file);
+        try {
+          const res = await fetch("/documents", { method: "POST", body });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            setStatus(`${file.name}: ${err.detail || "Error " + res.status}`, true);
+            return;
+          }
+        } catch {
+          setStatus("Server unavailable", true);
+          return;
+        }
+      }
+      setStatus("Done");
+      loadDocs();
+    }
+
+    dropzone.onclick = () => fileInput.click();
+    fileInput.onchange = () => { uploadFiles([...fileInput.files]); fileInput.value = ""; };
+    dropzone.ondragover = (e) => { e.preventDefault(); dropzone.classList.add("over"); };
+    dropzone.ondragleave = () => dropzone.classList.remove("over");
+    dropzone.ondrop = (e) => {
+      e.preventDefault();
+      dropzone.classList.remove("over");
+      uploadFiles([...e.dataTransfer.files]);
+    };
+
+    // ---------- chat ----------
+    function addMessage(role, text) {
+      messagesEl.querySelector(".hint")?.remove();
+      const wrap = document.createElement("div");
+      wrap.className = "msg " + role;
+      const bubble = document.createElement("div");
+      bubble.className = "bubble";
+      bubble.textContent = text;
+      wrap.appendChild(bubble);
+      messagesEl.appendChild(wrap);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      return { wrap, bubble };
+    }
+
+    function renderSources(wrap, sources) {
+      if (!sources.length) return;
+      const details = document.createElement("details");
+      details.className = "sources";
+      const summary = document.createElement("summary");
+      summary.textContent = `Sources (${sources.length})`;
+      details.appendChild(summary);
+
+      for (const s of sources) {
+        const item = document.createElement("div");
+        item.className = "source";
+        const title = document.createElement("div");
+        title.className = "title";
+        title.textContent = `[${s.n}] ${s.filename} · chunk ${s.position + 1} · distance ${s.distance}`;
+        const snippet = document.createElement("div");
+        snippet.className = "snippet";
+        snippet.textContent = s.snippet + (s.snippet.length >= 200 ? "…" : "");
+        item.append(title, snippet);
+        details.appendChild(item);
+      }
+      wrap.appendChild(details);
+    }
+
+    function setBusy(busy) {
+      sendBtn.style.display = busy ? "none" : "";
+      stopBtn.style.display = busy ? "" : "none";
+      questionEl.disabled = busy;
+    }
+
+    async function ask(question) {
+      addMessage("user", question);
+      const { wrap, bubble } = addMessage("assistant", "");
+      controller = new AbortController();
+      setBusy(true);
+
+      try {
+        const res = await fetch("/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question }),
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          bubble.classList.add("error");
+          bubble.textContent = "Server error: " + res.status;
+          return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop();            // неполное событие ждёт следующего куска
+
+          for (const raw of parts) {
+            if (!raw.startsWith("data: ")) continue;
+            const ev = JSON.parse(raw.slice(6));
+            if (ev.type === "sources") {
+              renderSources(wrap, ev.sources);
+            } else if (ev.type === "token") {
+              bubble.textContent += ev.text;
+              messagesEl.scrollTop = messagesEl.scrollHeight;
+            } else if (ev.type === "error") {
+              bubble.classList.add("error");
+              bubble.textContent += "\n[" + ev.message + "]";
+            }
+          }
+        }
+      } catch (e) {
+        if (e.name === "AbortError") {
+          bubble.textContent += "\n[stopped]";
+        } else {
+          bubble.classList.add("error");
+          bubble.textContent = "Network unavailable";
+        }
+      } finally {
+        controller = null;
+        setBusy(false);
+        questionEl.focus();
+      }
+    }
+
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const q = questionEl.value.trim();
+      if (!q) return;
+      questionEl.value = "";
+      ask(q);
+    });
+    stopBtn.onclick = () => controller && controller.abort();
+
+    loadDocs();
+  </script>
+</body>
+</html>

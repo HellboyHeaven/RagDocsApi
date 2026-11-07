@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+sqlalchemy[asyncio]
+asyncpg
+alembic
+pydantic-settings
+openai
+tenacity
+pgvector
+fastembed
+pypdf
+python-multipart

@@ -8,7 +8,7 @@ from app.config import settings
 
 @lru_cache
 def get_model() -> TextEmbedding:
-    # модель загружается один раз при первом вызове и остаётся в памяти
+    # Loaded once on first call, then kept in memory
     return TextEmbedding(model_name=settings.embedding_model, cache_dir=".models")
 
 
@@ -17,7 +17,7 @@ def embed_sync(texts: list[str]) -> list[list[float]]:
 
 
 async def embed(texts: list[str]) -> list[list[float]]:
-    # эмбеддинг считает CPU и блокирует поток, поэтому уводим его с event loop
+    # Embedding is CPU-bound: run it in a worker thread so the event loop stays free
     return await asyncio.to_thread(embed_sync, texts)
 
 
